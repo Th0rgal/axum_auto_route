@@ -7,10 +7,9 @@ use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta};
 pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
     let args = parse_macro_input!(args as AttributeArgs);
     let function = parse_macro_input!(input as ItemFn);
-    let function_name = &function.sig.ident;
 
-    if args.len() != 2 {
-        panic!("Expected two arguments: HTTP method and route path");
+    if args.len() != 3 {
+        panic!("Expected three arguments: HTTP method, route path, and full function path");
     }
 
     let http_method = match &args[0] {
@@ -24,17 +23,18 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         NestedMeta::Lit(Lit::Str(lit_str)) => lit_str,
         _ => panic!("Expected a string literal for the route path"),
     };
+    let full_function_path = match &args[2] {
+        NestedMeta::Lit(Lit::Str(lit_str)) => lit_str,
+        _ => panic!("Expected a string literal for the full function path"),
+    };
 
-    // Generate a unique identifier for the register function
-    let register_function_name = format_ident!("register_{}", function_name);
+    let register_function_name = format_ident!("register_{}", function.sig.ident);
 
-    // Determine the Axum function to use based on the HTTP method
     let axum_method = match http_method.as_str() {
         "get" => quote! { get },
         "post" => quote! { post },
         "put" => quote! { put },
         "delete" => quote! { delete },
-        // Add other HTTP methods here if needed
         _ => panic!("Unsupported HTTP method: {}", http_method),
     };
 
@@ -44,7 +44,7 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         #[ctor::ctor]
         fn #register_function_name() {
             use axum::Router;
-            let route = Router::new().route(#route_path, axum::routing::#axum_method(crate::#function_name));
+            let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
             crate::ROUTE_REGISTRY.lock().unwrap().push(route);
         }
     };
