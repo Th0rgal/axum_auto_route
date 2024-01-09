@@ -1,7 +1,7 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta};
+use syn::{parse_macro_input, AttributeArgs, ItemFn, Meta, NestedMeta};
 
 #[proc_macro_attribute]
 pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -9,7 +9,7 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
     let function = parse_macro_input!(input as ItemFn);
 
     if args.len() != 3 {
-        panic!("Expected three arguments: HTTP method, route path, and full function path");
+        panic!("Expected three arguments: HTTP method, route path, and function path");
     }
 
     let http_method = match &args[0] {
@@ -20,12 +20,12 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => panic!("Expected an HTTP method (e.g., 'get', 'post')"),
     };
     let route_path = match &args[1] {
-        NestedMeta::Lit(Lit::Str(lit_str)) => lit_str,
+        NestedMeta::Lit(syn::Lit::Str(lit_str)) => lit_str,
         _ => panic!("Expected a string literal for the route path"),
     };
-    let full_function_path = match &args[2] {
-        NestedMeta::Lit(Lit::Str(lit_str)) => lit_str,
-        _ => panic!("Expected a string literal for the full function path"),
+    let function_path = match &args[2] {
+        NestedMeta::Meta(Meta::Path(path)) => path,
+        _ => panic!("Expected a path for the function"),
     };
 
     let register_function_name = format_ident!("register_{}", function.sig.ident);
@@ -44,7 +44,7 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         #[ctor::ctor]
         fn #register_function_name() {
             use axum::Router;
-            let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
+            let route = Router::new().route(#route_path, axum::routing::#axum_method(#function_path));
             crate::ROUTE_REGISTRY.lock().unwrap().push(route);
         }
     };
