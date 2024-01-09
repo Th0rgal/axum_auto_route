@@ -1,5 +1,5 @@
 [package]
-name = "axum_routes_macro"
+name = "axum_auto_route"
 version = "0.1.0"
 edition = "2021"
 
