@@ -53,21 +53,18 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
     });
 
     let route_registration = if requires_state {
-        // Handle the route registration with a generic state
         quote! {
             use axum::{Router, extract::State};
-            fn generated_route_function<S>(state: State<S>) {
-                let route = Router::with_state(state).route(#route_path, axum::routing::#axum_method(#full_function_path));
-                crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+            // We assume the state type is AppState and it's wrapped in an Arc
+            fn generated_route_function(state: State<std::sync::Arc<models::AppState>>) -> Router<std::sync::Arc<models::AppState>, _> {
+                Router::with_state(state).route(#route_path, axum::routing::#axum_method(#full_function_path))
             }
-            generated_route_function // Return or use this function as needed
+            // The state should be provided when calling this function during app initialization
         }
     } else {
-        // Normal route registration without state
         quote! {
             use axum::Router;
-            let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
-            crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+            Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path))
         }
     };
 
@@ -75,7 +72,10 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         #function
         #[ctor::ctor]
         fn #register_function_name() {
-            #route_registration
+            // We lock the ROUTE_REGISTRY and push our route
+            let mut registry = crate::ROUTE_REGISTRY.lock().unwrap();
+            let route = #route_registration;
+            registry.push(route);
         }
     };
 
