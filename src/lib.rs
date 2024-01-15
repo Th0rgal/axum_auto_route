@@ -1,7 +1,7 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta, FnArg, PatType, Type};
+use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta};
 
 #[proc_macro_attribute]
 pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -49,19 +49,34 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => panic!("Unsupported HTTP method: {}", http_method),
     };
 
+    let requires_state = function.sig.inputs.iter().any(|arg| {
+        // Check if any of the arguments is of type `State<T>`
+        matches!(arg, syn::FnArg::Typed(pat) if matches!(*pat.ty, syn::Type::Path(ref path) if path.path.segments.iter().any(|seg| seg.ident == "State")))
+    });
+    if requires_state {
+    } else {
+    }
+    let route_registration = if requires_state {
+        // If the function requires state, use `Router::with_state`
+        quote! {
+        use axum::{Router, extract::State};
+        let route = Router::with_state(state).route(#route_path, axum::routing::#axum_method(#full_function_path));
+        crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+        }
+    } else {
+        // Normal route registration without state
+        quote! {
+        use axum::Router;
+        let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
+        crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+        }
+    };
+
     let expanded = quote! {
         #function
-
         #[ctor::ctor]
         fn #register_function_name() {
-            use axum::{Router, routing::#axum_method};
-            use std::sync::Arc;
-
-            // Create a router and add the route
-            let route = Router::new().route(#route_path, #axum_method(#full_function_path));
-
-            // Add the route to the global registry
-            crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+            #route_registration
         }
     };
 
