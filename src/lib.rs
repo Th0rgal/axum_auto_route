@@ -1,7 +1,7 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta};
+use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta, FnArg, PatType, Type};
 
 #[proc_macro_attribute]
 pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
@@ -54,8 +54,13 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
 
         #[ctor::ctor]
         fn #register_function_name() {
-            use axum::Router;
-            let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
+            use axum::{Router, routing::#axum_method};
+            use std::sync::Arc;
+
+            // Create a router and add the route
+            let route = Router::new().route(#route_path, #axum_method(#full_function_path));
+
+            // Add the route to the global registry
             crate::ROUTE_REGISTRY.lock().unwrap().push(route);
         }
     };
