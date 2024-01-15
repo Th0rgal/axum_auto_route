@@ -53,18 +53,14 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
     });
 
     let route_registration = if requires_state {
+        // Generate the route registration code for stateful routes
         quote! {
-            use axum::{Router, extract::State};
-            // We assume the state type is AppState and it's wrapped in an Arc
-            fn generated_route_function(state: State<std::sync::Arc<models::AppState>>) -> Router<std::sync::Arc<models::AppState>, _> {
-                Router::with_state(state).route(#route_path, axum::routing::#axum_method(#full_function_path))
-            }
-            // The state should be provided when calling this function during app initialization
+            Router::with_state(state.clone()).route(#route_path, axum::routing::#axum_method(crate::endpoints::#function_name))
         }
     } else {
+        // Generate the route registration code for stateless routes
         quote! {
-            use axum::Router;
-            Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path))
+            Router::new().route(#route_path, axum::routing::#axum_method(crate::endpoints::#function_name))
         }
     };
 
