@@ -48,27 +48,26 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         "delete" => quote! { delete },
         _ => panic!("Unsupported HTTP method: {}", http_method),
     };
-
     let requires_state = function.sig.inputs.iter().any(|arg| {
-        // Check if any of the arguments is of type `State<T>`
         matches!(arg, syn::FnArg::Typed(pat) if matches!(*pat.ty, syn::Type::Path(ref path) if path.path.segments.iter().any(|seg| seg.ident == "State")))
     });
-    if requires_state {
-    } else {
-    }
+
     let route_registration = if requires_state {
-        // If the function requires state, use `Router::with_state`
+        // Handle the route registration with a generic state
         quote! {
-        use axum::{Router, extract::State};
-        let route = Router::with_state(state).route(#route_path, axum::routing::#axum_method(#full_function_path));
-        crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+            use axum::{Router, extract::State};
+            fn generated_route_function<S>(state: State<S>) {
+                let route = Router::with_state(state).route(#route_path, axum::routing::#axum_method(#full_function_path));
+                crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+            }
+            generated_route_function // Return or use this function as needed
         }
     } else {
         // Normal route registration without state
         quote! {
-        use axum::Router;
-        let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
-        crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+            use axum::Router;
+            let route = Router::new().route(#route_path, axum::routing::#axum_method(#full_function_path));
+            crate::ROUTE_REGISTRY.lock().unwrap().push(route);
         }
     };
 
