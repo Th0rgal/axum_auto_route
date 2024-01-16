@@ -48,30 +48,19 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         "delete" => quote! { delete },
         _ => panic!("Unsupported HTTP method: {}", http_method),
     };
-    let requires_state = function.sig.inputs.iter().any(|arg| {
-        matches!(arg, syn::FnArg::Typed(pat) if matches!(*pat.ty, syn::Type::Path(ref path) if path.path.segments.iter().any(|seg| seg.ident == "State")))
-    });
-
-    let route_registration = if requires_state {
-        // Generate the route registration code for stateful routes
-        quote! {
-            Router::with_state(state.clone()).route(#route_path, axum::routing::#axum_method(crate::endpoints::#function_name))
-        }
-    } else {
-        // Generate the route registration code for stateless routes
-        quote! {
-            Router::new().route(#route_path, axum::routing::#axum_method(crate::endpoints::#function_name))
-        }
-    };
 
     let expanded = quote! {
         #function
+
         #[ctor::ctor]
         fn #register_function_name() {
-            // We lock the ROUTE_REGISTRY and push our route
-            let mut registry = crate::ROUTE_REGISTRY.lock().unwrap();
-            let route = #route_registration;
-            registry.push(route);
+            use axum::Router;
+            let route = Box::new(Router::new().route(
+                #route_path,
+                axum::routing::#axum_method(#full_function_path),
+            ));
+
+            crate::ROUTE_REGISTRY.lock().unwrap().push(route);
         }
     };
 
