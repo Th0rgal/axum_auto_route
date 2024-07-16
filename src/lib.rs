@@ -9,8 +9,10 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
     let function = parse_macro_input!(input as ItemFn);
     let function_name = &function.sig.ident;
 
-    if args.len() < 2 || args.len() > 3 {
-        panic!("Expected two or three arguments: HTTP method, route path, and optionally the module path");
+    if args.len() < 2 {
+        panic!(
+            "Expected at least two arguments: HTTP method, route path, and optionally a middleware function"
+        );
     }
 
     let http_method = match &args[0] {
@@ -25,19 +27,16 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => panic!("Expected a string literal for the route path"),
     };
 
-    let module_path = args.get(2).and_then(|arg| {
-        if let NestedMeta::Meta(Meta::Path(path)) = arg {
-            Some(path)
-        } else {
-            None
+    let middleware_fn = if args.len() > 2 {
+        match &args[2] {
+            NestedMeta::Meta(Meta::Path(path)) => Some(path),
+            _ => panic!("Expected a middleware function path"),
         }
-    });
-
-    let full_function_path = if let Some(module_path) = module_path {
-        quote! { #module_path::#function_name }
     } else {
-        quote! { #function_name }
+        None
     };
+
+    let full_function_path = quote! { #function_name };
 
     let register_function_name = format_ident!("register_{}", function_name);
 
@@ -49,18 +48,37 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => panic!("Unsupported HTTP method: {}", http_method),
     };
 
-    let expanded = quote! {
-        #function
+    let expanded = if let Some(middleware_fn) = middleware_fn {
+        quote! {
+            #function
 
-        #[ctor::ctor]
-        fn #register_function_name() {
-            use axum::Router;
-            let route = Box::new(Router::new().route(
-                #route_path,
-                axum::routing::#axum_method(#full_function_path),
-            ));
+            #[ctor::ctor]
+            fn #register_function_name() {
+                use axum::{Router, middleware::from_fn};
 
-            crate::ROUTE_REGISTRY.lock().unwrap().push(route);
+                let route = Router::new().route(
+                    #route_path,
+                    axum::routing::#axum_method(#full_function_path)
+                ).layer(from_fn(#middleware_fn));
+
+                crate::ROUTE_REGISTRY.lock().unwrap().push(Box::new(route));
+            }
+        }
+    } else {
+        quote! {
+            #function
+
+            #[ctor::ctor]
+            fn #register_function_name() {
+                use axum::Router;
+
+                let route = Router::new().route(
+                    #route_path,
+                    axum::routing::#axum_method(#full_function_path)
+                );
+
+                crate::ROUTE_REGISTRY.lock().unwrap().push(Box::new(route));
+            }
         }
     };
 
