@@ -27,14 +27,15 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => panic!("Expected a string literal for the route path"),
     };
 
-    let middleware_fn = if args.len() > 2 {
-        match &args[2] {
-            NestedMeta::Meta(Meta::Path(path)) => Some(path),
+    let middleware_functions: Vec<_> = args
+        .iter()
+        .skip(2)
+        .map(|arg| match arg {
+            NestedMeta::Meta(Meta::Path(path)) => quote! { #path },
             _ => panic!("Expected a middleware function path"),
-        }
-    } else {
-        None
-    };
+        })
+        .rev()
+        .collect();
 
     let full_function_path = quote! { #function_name };
 
@@ -48,37 +49,22 @@ pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
         _ => panic!("Unsupported HTTP method: {}", http_method),
     };
 
-    let expanded = if let Some(middleware_fn) = middleware_fn {
-        quote! {
-            #function
+    let expanded = quote! {
+        #function
 
-            #[ctor::ctor]
-            fn #register_function_name() {
-                use axum::{Router, middleware::from_fn};
+        #[ctor::ctor]
+        fn #register_function_name() {
+            use axum::{Router, middleware::from_fn};
 
-                let route = Router::new().route(
-                    #route_path,
-                    axum::routing::#axum_method(#full_function_path)
-                ).layer(from_fn(#middleware_fn));
+            let mut route = Router::new().route(
+                #route_path,
+                axum::routing::#axum_method(#full_function_path)
+            );
 
-                crate::ROUTE_REGISTRY.lock().unwrap().push(Box::new(route));
-            }
-        }
-    } else {
-        quote! {
-            #function
+            // Apply each middleware function in sequence
+            #(route = route.layer(from_fn(#middleware_functions));)*
 
-            #[ctor::ctor]
-            fn #register_function_name() {
-                use axum::Router;
-
-                let route = Router::new().route(
-                    #route_path,
-                    axum::routing::#axum_method(#full_function_path)
-                );
-
-                crate::ROUTE_REGISTRY.lock().unwrap().push(Box::new(route));
-            }
+            crate::ROUTE_REGISTRY.lock().unwrap().push(Box::new(route));
         }
     };
 
