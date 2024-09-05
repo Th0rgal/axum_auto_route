@@ -1,39 +1,45 @@
 extern crate proc_macro;
 use proc_macro::TokenStream;
 use quote::{format_ident, quote};
-use syn::{parse_macro_input, AttributeArgs, ItemFn, Lit, Meta, NestedMeta};
+use syn::{parse::Parse, parse::ParseStream, parse_macro_input, ItemFn, Lit, Token};
+
+struct RouteArgs {
+    method: syn::Ident,
+    path: Lit,
+    middleware: Vec<syn::Path>,
+}
+
+impl Parse for RouteArgs {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let method = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let path = input.parse()?;
+        let mut middleware = Vec::new();
+        while !input.is_empty() {
+            input.parse::<Token![,]>()?;
+            middleware.push(input.parse()?);
+        }
+        Ok(RouteArgs {
+            method,
+            path,
+            middleware,
+        })
+    }
+}
 
 #[proc_macro_attribute]
 pub fn route(args: TokenStream, input: TokenStream) -> TokenStream {
-    let args = parse_macro_input!(args as AttributeArgs);
+    let args = parse_macro_input!(args as RouteArgs);
     let function = parse_macro_input!(input as ItemFn);
     let function_name = &function.sig.ident;
 
-    if args.len() < 2 {
-        panic!(
-            "Expected at least two arguments: HTTP method, route path, and optionally a middleware function"
-        );
-    }
-
-    let http_method = match &args[0] {
-        NestedMeta::Meta(Meta::Path(path)) => path
-            .get_ident()
-            .expect("Expected an HTTP method")
-            .to_string(),
-        _ => panic!("Expected an HTTP method (e.g., 'get', 'post')"),
-    };
-    let route_path = match &args[1] {
-        NestedMeta::Lit(Lit::Str(lit_str)) => lit_str,
-        _ => panic!("Expected a string literal for the route path"),
-    };
+    let http_method = args.method.to_string();
+    let route_path = &args.path;
 
     let middleware_functions: Vec<_> = args
+        .middleware
         .iter()
-        .skip(2)
-        .map(|arg| match arg {
-            NestedMeta::Meta(Meta::Path(path)) => quote! { #path },
-            _ => panic!("Expected a middleware function path"),
-        })
+        .map(|path| quote! { #path })
         .rev()
         .collect();
 
